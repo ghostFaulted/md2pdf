@@ -50,7 +50,8 @@ class MarkdownCompiler:
                 "--pdf-engine=xelatex",
                 f"--template={str(self.template_path)}",
                 f"--resource-path={str(work_dir)}",
-                "--highlight-style=tango"
+                "--highlight-style=tango",
+                "-V", "lang=english"
             ]
             if options.get("toc", False):
                 cmd.append("--toc")

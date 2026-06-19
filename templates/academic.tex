@@ -44,8 +44,11 @@ $endif$
 \setsansfont{Arial}
 \setmonofont{Consolas}
 
-% Babel for Ukrainian hyphenation and localization
-\usepackage[ukrainian]{babel}
+$if(lang)$
+\usepackage[$lang$]{babel}
+$else$
+\usepackage[english]{babel}
+$endif$
 
 % =======================================================
 % 4. OBSIDIAN CALLOUTS SETUP (tcolorbox)

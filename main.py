@@ -12,7 +12,7 @@ def main():
     if not is_ready:
         msg_box = QMessageBox()
         msg_box.setIcon(QMessageBox.Icon.Critical)
-        msg_box.setWindowTitle("System Dependency Error")
+        msg_box.setWindowTitle("md2pdf - System Dependency Error")
         msg_box.setText("Missing required external tools.")
         msg_box.setInformativeText(error_msg)
         msg_box.exec()

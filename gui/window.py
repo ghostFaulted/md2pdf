@@ -3,9 +3,11 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QFileDialog, QLabel, QCheckBox, 
-    QTextEdit, QMessageBox, QGroupBox
+    QTextEdit, QMessageBox, QGroupBox, QSplitter
 )
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtPdf import QPdfDocument
+from PyQt6.QtPdfWidgets import QPdfView
 from core.compiler import MarkdownCompiler
 
 class CompilerWorker(QThread):
@@ -27,8 +29,8 @@ class CompilerWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Obsidian to PDF (LaTeX Engine)")
-        self.setMinimumSize(700, 500)
+        self.setWindowTitle("md2pdf - Markdown to PDF Converter")
+        self.setMinimumSize(1000, 650)
         
         self.input_file = ""
         self.output_file = ""
@@ -37,11 +39,18 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         central_widget = QWidget()
-        main_layout = QVBoxLayout()
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(5, 5, 5, 5)
 
         file_group = QGroupBox("File Paths")
         file_layout = QVBoxLayout()
-
+        
         row_in = QHBoxLayout()
         self.lbl_input = QLabel("Input: Not selected")
         btn_in = QPushButton("Browse .md")
@@ -59,31 +68,52 @@ class MainWindow(QMainWindow):
         file_layout.addLayout(row_in)
         file_layout.addLayout(row_out)
         file_group.setLayout(file_layout)
-        main_layout.addWidget(file_group)
+        left_layout.addWidget(file_group)
 
         opt_group = QGroupBox("Options")
         opt_layout = QHBoxLayout()
         self.chk_toc = QCheckBox("Generate Table of Contents")
         opt_layout.addWidget(self.chk_toc)
         opt_group.setLayout(opt_layout)
-        main_layout.addWidget(opt_group)
+        left_layout.addWidget(opt_group)
 
         self.btn_convert = QPushButton("COMPILE TO PDF")
-        self.btn_convert.setMinimumHeight(40)
+        self.btn_convert.setMinimumHeight(45)
         self.btn_convert.setStyleSheet("font-weight: bold;")
         self.btn_convert.clicked.connect(self._start_compilation)
-        main_layout.addWidget(self.btn_convert)
+        left_layout.addWidget(self.btn_convert)
 
         self.console = QTextEdit()
         self.console.setReadOnly(True)
         self.console.setStyleSheet("font-family: Consolas, monospace; background-color: #1e1e1e; color: #d4d4d4;")
-        main_layout.addWidget(self.console)
+        left_layout.addWidget(self.console)
 
-        central_widget.setLayout(main_layout)
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(5, 5, 5, 5)
+
+        preview_group = QGroupBox("PDF Live Preview")
+        preview_layout = QVBoxLayout(preview_group)
+        preview_layout.setContentsMargins(2, 2, 2, 2)
+
+        self.pdf_view = QPdfView(self)
+        self.pdf_document = QPdfDocument(self)
+        self.pdf_view.setDocument(self.pdf_document)
+        
+        preview_layout.addWidget(self.pdf_view)
+        right_layout.addWidget(preview_group)
+
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 6)
+
+        main_layout.addWidget(splitter)
         self.setCentralWidget(central_widget)
 
     def _select_input(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Select Obsidian Markdown", "", "Markdown Files (*.md)")
+        path, _ = QFileDialog.getOpenFileName(self, "Select Markdown File", "", "Markdown Files (*.md)")
         if path:
             self.input_file = path
             self.lbl_input.setText(f"Input: {path}")
@@ -108,6 +138,8 @@ class MainWindow(QMainWindow):
             self.btn_convert.setEnabled(False)
             self.console.clear()
 
+            self.pdf_document.close()
+
             options = {
                 "toc": self.chk_toc.isChecked()
             }
@@ -129,7 +161,14 @@ class MainWindow(QMainWindow):
         self._append_log(log)
         if success:
             self._append_log("\n>>> COMPILATION SUCCESSFUL <<<")
-            QMessageBox.information(self, "Success", "PDF generated successfully.")
+            
+            try:
+                self.pdf_document.load(self.output_file)
+                self.pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
+                self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+            except Exception as e:
+                self._append_log(f"\nFailed to load preview: {str(e)}")
+                
         else:
             self._append_log("\n>>> COMPILATION FAILED <<<")
             QMessageBox.critical(self, "Error", "Compilation failed. Check the logs for details.")
