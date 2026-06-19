@@ -1,13 +1,23 @@
 import os
+import sys
 import tempfile
 import subprocess
+import traceback
 from pathlib import Path
 from typing import Tuple, Dict
+
 from .preprocessor import ObsidianPreprocessor
 
 class MarkdownCompiler:
     def __init__(self):
-        self.base_dir = Path(__file__).resolve().parent.parent
+        try:
+            if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+                self.base_dir = Path(sys._MEIPASS)
+            else:
+                self.base_dir = Path(__file__).resolve().parent.parent
+        except Exception:
+            self.base_dir = Path(os.getcwd())
+            
         self.template_path = self.base_dir / "templates" / "academic.tex"
 
     def compile(self, input_path: str, output_path: str, options: Dict[str, bool]) -> Tuple[bool, str]:
@@ -22,7 +32,7 @@ class MarkdownCompiler:
         preprocessor = ObsidianPreprocessor(work_dir)
 
         try:
-            with open(input_file, 'r', encoding='utf-8') as f:
+            with open(input_file, 'r', encoding='utf-8', errors='replace') as f:
                 raw_text = f.read()
             processed_text = preprocessor.process(raw_text)
         except Exception as e:
@@ -32,7 +42,7 @@ class MarkdownCompiler:
         try:
             with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmp_file:
                 tmp_file.write(processed_text)
-
+                
             cmd = [
                 "pandoc",
                 tmp_path,
@@ -42,38 +52,33 @@ class MarkdownCompiler:
                 f"--resource-path={str(work_dir)}",
                 "--highlight-style=tango"
             ]
-
             if options.get("toc", False):
                 cmd.append("--toc")
+
+            creationflags = 0
+            if os.name == 'nt':
+                creationflags = subprocess.CREATE_NO_WINDOW
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
                 check=True,
-                encoding='utf-8'
+                creationflags=creationflags
             )
             
-            log_output = result.stdout + "\n" + result.stderr
-            return True, log_output.strip()
+            out = result.stdout.decode('utf-8', errors='replace')
+            err = result.stderr.decode('utf-8', errors='replace')
+            return True, f"{out}\n{err}".strip()
 
         except subprocess.CalledProcessError as e:
-            error_msg = f"Pandoc/XeLaTeX Compilation Failed (Exit code {e.returncode}):\n{e.stderr}"
+            err = e.stderr.decode('utf-8', errors='replace') if e.stderr else "No stderr output"
+            error_msg = f"Pandoc/XeLaTeX Compilation Failed (Exit code {e.returncode}):\n{err}"
             return False, error_msg
         except Exception as e:
-            return False, f"Unexpected compilation error: {str(e)}"
+            return False, f"Unexpected compilation error:\n{traceback.format_exc()}"
         finally:
             if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) < 3:
-        print("Usage: python -m core.compiler <input.md> <output.pdf>")
-    else:
-        compiler = MarkdownCompiler()
-        success, log = compiler.compile(sys.argv[1], sys.argv[2], {"toc": True})
-        if success:
-            print("SUCCESS:\n", log)
-        else:
-            print("ERROR:\n", log)
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
