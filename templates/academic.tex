@@ -1,17 +1,11 @@
 \documentclass[$if(fontsize)$$fontsize$,$else$11pt,$endif$$for(classoption)$$classoption$$sep$,$endfor$]{article}
 
-% =======================================================
-% 1. PANDOC REQUIRED MACROS
-% =======================================================
-% Pandoc requires \tightlist to format nested lists correctly
-\providecommand{\tightlist}{%
-  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
 
 $if(highlighting-macros)$
 $highlighting-macros$
 $endif$
 
-% Support for inserting external images natively
 \usepackage{graphicx}
 \makeatletter
 \def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
@@ -19,11 +13,8 @@ $endif$
 \makeatother
 \setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
 
-% =======================================================
-% 2. GEOMETRY & TYPOGRAPHY
-% =======================================================
 \usepackage[margin=2.5cm]{geometry}
-\usepackage{parskip} % Better paragraph spacing (no indentation, space between)
+\usepackage{parskip}
 \usepackage{hyperref}
 \hypersetup{
     colorlinks=true,
@@ -33,13 +24,9 @@ $endif$
     pdftitle={$title$},
 }
 
-% =======================================================
-% 3. FONTS & LANGUAGE (XeLaTeX Specific)
-% =======================================================
 \usepackage{fontspec}
 \usepackage{unicode-math}
 
-% Windows native fonts with Cyrillic support
 \setmainfont{Times New Roman}
 \setsansfont{Arial}
 \setmonofont{Consolas}
@@ -50,36 +37,33 @@ $else$
 \usepackage[english]{babel}
 $endif$
 
-% =======================================================
-% 4. OBSIDIAN CALLOUTS SETUP (tcolorbox)
-% =======================================================
+\usepackage{titlesec}
+\titleformat{\paragraph}[hang]{\normalfont\normalsize\bfseries}{\theparagraph}{1em}{}
+\titlespacing*{\paragraph}{0pt}{2ex}{1ex}
+\titleformat{\subparagraph}[hang]{\normalfont\normalsize\bfseries}{\thesubparagraph}{1em}{}
+\titlespacing*{\subparagraph}{0pt}{2ex}{1ex}
+
+\setcounter{secnumdepth}{-\maxdimen}
+
 \usepackage[most]{tcolorbox}
 \usepackage{xcolor}
 
-% Define base colors for callout types
-\definecolor{notecolor}{HTML}{086DD7}    % Blue
-\definecolor{infocolor}{HTML}{086DD7}    % Blue
-\definecolor{tipcolor}{HTML}{00BA88}     % Green
-\definecolor{warningcolor}{HTML}{F4B000} % Yellow/Orange
-\definecolor{dangercolor}{HTML}{E53935}  % Red
+\definecolor{notecolor}{HTML}{086DD7}
+\definecolor{infocolor}{HTML}{086DD7}
+\definecolor{tipcolor}{HTML}{00BA88}
+\definecolor{warningcolor}{HTML}{F4B000}
+\definecolor{dangercolor}{HTML}{E53935}
 
-% Custom environment for Obsidian Callouts
-% Argument 1: Type (note, warning, danger, etc.) - mapped to <type>color
-% Argument 2: Title of the callout
 \newtcolorbox{obscallout}[2]{
     enhanced,
     breakable,
     frame hidden,
     boxrule=0pt,
-    % Left border line: 4pt width, 0pt offset, color based on type
     borderline west={4pt}{0pt}{#1color},
-    % Background color: 5% opacity of the main color
     colback=#1color!5!white,
-    % Title styling
     coltitle=#1color,
     fonttitle=\bfseries,
     title={#2},
-    % Layout adjustments
     attach title to upper=\par\vspace{0.3em},
     sharp corners,
     left=8pt,
@@ -90,9 +74,6 @@ $endif$
     after skip=1em
 }
 
-% =======================================================
-% 5. HEADER INCLUDES (Injected by Pandoc)
-% =======================================================
 $for(header-includes)$
 $header-includes$
 $endfor$
@@ -109,9 +90,6 @@ $if(toc)$
 \newpage
 $endif$
 
-% =======================================================
-% 6. MAIN CONTENT INJECTION
-% =======================================================
 $body$
 
 \end{document}

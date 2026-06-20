@@ -6,9 +6,15 @@ class ObsidianPreprocessor:
         self.base_dir = Path(base_dir)
 
     def process(self, text: str) -> str:
+        text = self._normalize_headings(text)
         text = self._process_wikilinks(text)
         text = self._process_image_embeds(text)
         text = self._process_callouts(text)
+        return text
+
+    def _normalize_headings(self, text: str) -> str:
+        text = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', text)
+        text = re.sub(r'(^#{1,6}\s.*?[^\n])\n([^\n])', r'\1\n\n\2', text, flags=re.MULTILINE)
         return text
 
     def _process_wikilinks(self, text: str) -> str:
@@ -20,7 +26,6 @@ class ObsidianPreprocessor:
         def repl(m: re.Match) -> str:
             img_name = m.group(1)
             size = m.group(2)
-            
             if size and size.isdigit():
                 return f"![{img_name}]({img_name}){{width={size}px}}"
             return f"![{img_name}]({img_name})"
@@ -37,7 +42,6 @@ class ObsidianPreprocessor:
             c_type = m.group('type').lower().strip()
             title = m.group('title').strip() if m.group('title') else c_type.capitalize()
             content = m.group('content')
-            
             clean_content = re.sub(r'^>\s?', '', content, flags=re.MULTILINE)
             
             return (
@@ -51,19 +55,3 @@ class ObsidianPreprocessor:
             )
 
         return pattern.sub(repl, text)
-
-if __name__ == "__main__":
-    sample_md = """
-    Here is a link to [[Math Logic|Logic]] and a normal [[Formula]].
-    
-    ![[graph.png|300]]
-    
-    > [!warning] Critical Proof
-    > This implies $A \implies B$.
-    > - Point 1
-    > - Point 2
-    """
-    
-    preprocessor = ObsidianPreprocessor(base_dir=".")
-    print("--- PREPROCESSED OUTPUT ---")
-    print(preprocessor.process(sample_md))
