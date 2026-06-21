@@ -63,6 +63,10 @@ class MarkdownCompiler:
             ]
             if options.get("toc", False):
                 cmd.append("--toc")
+            if options.get("mainfont"):
+                cmd.extend(["-V", f"mainfont={options['mainfont']}"])
+            if options.get("fontsize"):
+                cmd.extend(["-V", f"fontsize={options['fontsize']}"])
 
             creationflags = 0
             if os.name == 'nt':

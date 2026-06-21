@@ -1,4 +1,4 @@
-\documentclass[$if(fontsize)$$fontsize$,$else$11pt,$endif$$for(classoption)$$classoption$$sep$,$endfor$]{article}
+\documentclass[$if(fontsize)$$fontsize$,$else$11pt,$endif$]{article}
 
 \providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
 
@@ -27,9 +27,23 @@ $endif$
 \usepackage{fontspec}
 \usepackage{unicode-math}
 
+$if(mainfont)$
+\setmainfont{$mainfont$}
+$else$
 \setmainfont{Times New Roman}
+$endif$
+
+$if(sansfont)$
+\setsansfont{$sansfont$}
+$else$
 \setsansfont{Arial}
+$endif$
+
+$if(monofont)$
+\setmonofont{$monofont$}
+$else$
 \setmonofont{Consolas}
+$endif$
 
 $if(lang)$
 \usepackage[$lang$]{babel}

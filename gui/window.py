@@ -6,11 +6,13 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QFileDialog, QLabel, QCheckBox, 
     QTextEdit, QMessageBox, QGroupBox, QSplitter,
-    QSizePolicy, QComboBox
+    QSizePolicy, QComboBox, QDialog,
+    QSpinBox, QFormLayout, QDialogButtonBox
 )
-from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QByteArray, QBuffer, QIODevice
 from PyQt6.QtPdf import QPdfDocument
 from PyQt6.QtPdfWidgets import QPdfView
+
 from core.compiler import MarkdownCompiler
 
 class SafePdfView(QPdfView):
@@ -22,6 +24,51 @@ class SafePdfView(QPdfView):
             event.accept()
             return
         super().resizeEvent(event)
+
+class CustomizeDialog(QDialog):
+    def __init__(self, current_font: str, current_size: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Customize Formatting")
+        self.setMinimumWidth(350)
+        
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        
+        self.font_combo = QComboBox()
+        safe_fonts = [
+            "Times New Roman",
+            "Arial",
+            "Calibri",
+            "Georgia",
+            "Verdana",
+            "Segoe UI",
+            "Tahoma",
+            "Consolas",
+            "Courier New"
+        ]
+        self.font_combo.addItems(safe_fonts)
+        
+        if current_font in safe_fonts:
+            self.font_combo.setCurrentText(current_font)
+        else:
+            self.font_combo.setCurrentText("Times New Roman")
+            
+        form_layout.addRow("Main Font:", self.font_combo)
+        
+        self.size_spin = QSpinBox()
+        self.size_spin.setRange(8, 24)
+        self.size_spin.setValue(current_size)
+        form_layout.addRow("Font Size (pt):", self.size_spin)
+        
+        layout.addLayout(form_layout)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+    def get_values(self) -> tuple[str, int]:
+        return self.font_combo.currentText(), self.size_spin.value()
 
 class CompilerWorker(QThread):
     log_signal = pyqtSignal(str)
@@ -44,12 +91,15 @@ class CompilerWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("md2pdf")
+        self.setWindowTitle("md2pdf - Markdown to PDF Converter")
         self.setMinimumSize(1100, 700)
         
         self.input_file = ""
         self.output_file = ""
         self.preview_temp_pdf_path = os.path.join(tempfile.gettempdir(), "md2pdf_preview_cache.pdf")
+        
+        self.selected_font = "Times New Roman"
+        self.selected_fontsize = 11
         
         self._build_ui()
 
@@ -103,6 +153,11 @@ class MainWindow(QMainWindow):
         row_settings.addWidget(self.chk_toc)
         row_settings.addWidget(self.cmb_mode)
         opt_layout.addLayout(row_settings)
+        
+        self.btn_customize = QPushButton("Customize...")
+        self.btn_customize.clicked.connect(self._open_customize_dialog)
+        opt_layout.addWidget(self.btn_customize)
+        
         opt_group.setLayout(opt_layout)
         left_layout.addWidget(opt_group)
 
@@ -182,11 +237,25 @@ class MainWindow(QMainWindow):
         if self.input_file:
             self._start_preview_compilation()
 
+    def _open_customize_dialog(self):
+        dialog = CustomizeDialog(self.selected_font, self.selected_fontsize, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.selected_font, self.selected_fontsize = dialog.get_values()
+            self._on_option_changed()
+
     def _start_preview_compilation(self):
         self._start_compilation(is_preview=True)
 
     def _start_final_compilation(self):
         self._start_compilation(is_preview=False)
+
+    def _clear_pdf_buffers(self):
+        self.pdf_document.close()
+        if hasattr(self, 'active_pdf_buffer'):
+            self.active_pdf_buffer.close()
+            del self.active_pdf_buffer
+        if hasattr(self, 'active_pdf_data'):
+            del self.active_pdf_data
 
     def _start_compilation(self, is_preview: bool):
         try:
@@ -199,11 +268,13 @@ class MainWindow(QMainWindow):
                 return
 
             self.console.clear()
-            self.pdf_document.close()
+            self._clear_pdf_buffers()
 
             options = {
                 "toc": self.chk_toc.isChecked(),
-                "obsidian_mode": self.cmb_mode.currentText() == "Obsidian MD"
+                "obsidian_mode": self.cmb_mode.currentText() == "Obsidian MD",
+                "mainfont": self.selected_font,
+                "fontsize": f"{self.selected_fontsize}pt"
             }
 
             target_output = self.preview_temp_pdf_path if is_preview else self.output_file
@@ -227,7 +298,16 @@ class MainWindow(QMainWindow):
             self._append_log("\n>>> COMPILATION SUCCESSFUL <<<")
             try:
                 active_pdf = self.preview_temp_pdf_path if is_preview else self.output_file
-                self.pdf_document.load(active_pdf)
+                self._clear_pdf_buffers()
+                
+                with open(active_pdf, 'rb') as f:
+                    pdf_bytes_data = f.read()
+                
+                self.active_pdf_data = QByteArray(pdf_bytes_data)
+                self.active_pdf_buffer = QBuffer(self.active_pdf_data)
+                self.active_pdf_buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+                
+                self.pdf_document.load(self.active_pdf_buffer)
                 self.pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
                 self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
             except Exception as e:
@@ -243,6 +323,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'worker') and self.worker.isRunning():
             self.worker.terminate()
             self.worker.wait()
+            
+        self._clear_pdf_buffers()
             
         if hasattr(self, 'preview_temp_pdf_path') and os.path.exists(self.preview_temp_pdf_path):
             try:
