@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QFileDialog, QLabel, QCheckBox, 
     QTextEdit, QMessageBox, QGroupBox, QSplitter,
-    QSizePolicy
+    QSizePolicy, QComboBox
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtPdf import QPdfDocument
@@ -44,7 +44,7 @@ class CompilerWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("md2pdf - Markdown to PDF Converter")
+        self.setWindowTitle("md2pdf")
         self.setMinimumSize(1100, 700)
         
         self.input_file = ""
@@ -80,10 +80,10 @@ class MainWindow(QMainWindow):
         self.lbl_output = QLabel("Output: Not selected")
         self.lbl_output.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         
-        self.btn_out = QPushButton("Save As .pdf")
-        self.btn_out.clicked.connect(self._select_output)
+        btn_out = QPushButton("Save As .pdf")
+        btn_out.clicked.connect(self._select_output)
         row_out.addWidget(self.lbl_output)
-        row_out.addWidget(self.btn_out)
+        row_out.addWidget(btn_out)
 
         file_layout.addLayout(row_in)
         file_layout.addLayout(row_out)
@@ -91,9 +91,18 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(file_group)
 
         opt_group = QGroupBox("Options")
-        opt_layout = QHBoxLayout()
+        opt_layout = QVBoxLayout()
+        
+        row_settings = QHBoxLayout()
         self.chk_toc = QCheckBox("Generate Table of Contents")
-        opt_layout.addWidget(self.chk_toc)
+        
+        self.cmb_mode = QComboBox()
+        self.cmb_mode.addItems(["Obsidian MD", "Raw MD"])
+        self.cmb_mode.currentIndexChanged.connect(self._on_option_changed)
+        
+        row_settings.addWidget(self.chk_toc)
+        row_settings.addWidget(self.cmb_mode)
+        opt_layout.addLayout(row_settings)
         opt_group.setLayout(opt_layout)
         left_layout.addWidget(opt_group)
 
@@ -169,6 +178,10 @@ class MainWindow(QMainWindow):
             self.output_file = path
             self._set_elided_path(self.lbl_output, "Output", path)
 
+    def _on_option_changed(self):
+        if self.input_file:
+            self._start_preview_compilation()
+
     def _start_preview_compilation(self):
         self._start_compilation(is_preview=True)
 
@@ -189,7 +202,8 @@ class MainWindow(QMainWindow):
             self.pdf_document.close()
 
             options = {
-                "toc": self.chk_toc.isChecked()
+                "toc": self.chk_toc.isChecked(),
+                "obsidian_mode": self.cmb_mode.currentText() == "Obsidian MD"
             }
 
             target_output = self.preview_temp_pdf_path if is_preview else self.output_file

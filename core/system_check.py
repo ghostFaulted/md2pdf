@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 from typing import Dict, Tuple
@@ -17,7 +18,6 @@ def check_dependencies() -> Tuple[bool, Dict[str, bool], str]:
     error_msg = ""
     if missing_tools:
         error_msg = f"Missing required system tools: {', '.join(missing_tools)}.\n"
-        
         if "pandoc" in missing_tools:
             error_msg += "- Pandoc is missing. Install via: winget install JohnMacFarlane.Pandoc\n"
         if "xelatex" in missing_tools:
@@ -27,23 +27,18 @@ def check_dependencies() -> Tuple[bool, Dict[str, bool], str]:
     
     if is_ready:
         try:
-            result = subprocess.run(
+            creationflags = 0
+            if os.name == 'nt':
+                creationflags = subprocess.CREATE_NO_WINDOW
+
+            subprocess.run(
                 ["pandoc", "--version"], 
                 capture_output=True, 
                 text=True, 
-                check=True
+                check=True,
+                creationflags=creationflags
             )
-            version_line = result.stdout.split('\n')[0]
-            print(f"System Check OK: Found {version_line}")
         except subprocess.SubprocessError:
             return False, dependencies, "Pandoc executable found, but failed to execute. Check system permissions."
 
     return is_ready, dependencies, error_msg
-
-if __name__ == "__main__":
-    ready, status, msg = check_dependencies()
-    if not ready:
-        print("SYSTEM CHECK FAILED:")
-        print(msg)
-    else:
-        print("SYSTEM CHECK PASSED. All dependencies are available.")

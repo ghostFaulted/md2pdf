@@ -29,12 +29,20 @@ class MarkdownCompiler:
             return False, f"Error: Template not found at {self.template_path}"
 
         work_dir = input_file.parent
-        preprocessor = ObsidianPreprocessor(work_dir)
+        obsidian_mode = options.get("obsidian_mode", True)
 
         try:
             with open(input_file, 'r', encoding='utf-8', errors='replace') as f:
                 raw_text = f.read()
-            processed_text = preprocessor.process(raw_text)
+            
+            if obsidian_mode:
+                preprocessor = ObsidianPreprocessor(work_dir)
+                processed_text = preprocessor.process(raw_text)
+                input_format = "markdown+hard_line_breaks"
+            else:
+                processed_text = raw_text
+                input_format = "markdown"
+                
         except Exception as e:
             return False, f"Preprocessing failed: {str(e)}"
 
@@ -45,13 +53,13 @@ class MarkdownCompiler:
                 
             cmd = [
                 "pandoc",
+                "-f", input_format,
                 tmp_path,
                 "-o", output_path,
                 "--pdf-engine=xelatex",
                 f"--template={str(self.template_path)}",
                 f"--resource-path={str(work_dir)}",
-                "--highlight-style=tango",
-                "-V", "lang=english"
+                "--highlight-style=tango"
             ]
             if options.get("toc", False):
                 cmd.append("--toc")
