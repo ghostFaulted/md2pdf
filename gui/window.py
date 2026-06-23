@@ -6,100 +6,32 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QFileDialog, QLabel, QCheckBox, 
     QTextEdit, QMessageBox, QGroupBox, QSplitter,
-    QSizePolicy, QComboBox, QDialog,
-    QSpinBox, QFormLayout, QDialogButtonBox
+    QSizePolicy, QComboBox, QDialog
 )
-from PyQt6.QtCore import QThread, pyqtSignal, Qt, QByteArray, QBuffer, QIODevice
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtCore import Qt, QByteArray, QBuffer, QIODevice, QSettings
 from PyQt6.QtPdf import QPdfDocument
 from PyQt6.QtPdfWidgets import QPdfView
 
-from core.compiler import MarkdownCompiler
-
-class SafePdfView(QPdfView):
-    def resizeEvent(self, event):
-        if self.width() <= 10 or self.height() <= 10:
-            event.accept()
-            return
-        if self.window() and (self.window().isMinimized() or self.window().isHidden()):
-            event.accept()
-            return
-        super().resizeEvent(event)
-
-class CustomizeDialog(QDialog):
-    def __init__(self, current_font: str, current_size: int, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Customize Formatting")
-        self.setMinimumWidth(350)
-        
-        layout = QVBoxLayout(self)
-        form_layout = QFormLayout()
-        
-        self.font_combo = QComboBox()
-        safe_fonts = [
-            "Times New Roman",
-            "Arial",
-            "Calibri",
-            "Georgia",
-            "Verdana",
-            "Segoe UI",
-            "Tahoma",
-            "Consolas",
-            "Courier New"
-        ]
-        self.font_combo.addItems(safe_fonts)
-        
-        if current_font in safe_fonts:
-            self.font_combo.setCurrentText(current_font)
-        else:
-            self.font_combo.setCurrentText("Times New Roman")
-            
-        form_layout.addRow("Main Font:", self.font_combo)
-        
-        self.size_spin = QSpinBox()
-        self.size_spin.setRange(8, 24)
-        self.size_spin.setValue(current_size)
-        form_layout.addRow("Font Size (pt):", self.size_spin)
-        
-        layout.addLayout(form_layout)
-        
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        
-    def get_values(self) -> tuple[str, int]:
-        return self.font_combo.currentText(), self.size_spin.value()
-
-class CompilerWorker(QThread):
-    log_signal = pyqtSignal(str)
-    finished_signal = pyqtSignal(bool, str, bool)
-
-    def __init__(self, input_path: str, output_path: str, options: dict, is_preview: bool, parent=None):
-        super().__init__(parent)
-        self.input_path = input_path
-        self.output_path = output_path
-        self.options = options
-        self.is_preview = is_preview
-        self.compiler = MarkdownCompiler()
-
-    def run(self):
-        msg = "Starting preview compilation...\n" if self.is_preview else "Starting final compilation...\n"
-        self.log_signal.emit(msg)
-        success, log = self.compiler.compile(self.input_path, self.output_path, self.options)
-        self.finished_signal.emit(success, log, self.is_preview)
+from .safe_pdf_view import SafePdfView
+from .dialogs import CustomizeDialog, DefaultSettingsDialog
+from .worker import CompilerWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("md2pdf - Markdown to PDF Converter")
         self.setMinimumSize(1100, 700)
+        self.setAcceptDrops(True)
         
         self.input_file = ""
         self.output_file = ""
         self.preview_temp_pdf_path = os.path.join(tempfile.gettempdir(), "md2pdf_preview_cache.pdf")
         
-        self.selected_font = "Times New Roman"
-        self.selected_fontsize = 11
+        self.settings = QSettings("md2pdf", "md2pdf_app")
+        
+        self.selected_font = self.settings.value("default_font", "Times New Roman")
+        self.selected_fontsize = int(self.settings.value("default_fontsize", 11))
         
         self._build_ui()
 
@@ -111,6 +43,7 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_widget = QWidget()
+        left_widget.setMinimumWidth(350)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(5, 5, 5, 5)
 
@@ -145,18 +78,28 @@ class MainWindow(QMainWindow):
         
         row_settings = QHBoxLayout()
         self.chk_toc = QCheckBox("Generate Table of Contents")
+        default_toc = self.settings.value("default_toc", "false") == "true"
+        self.chk_toc.setChecked(default_toc)
         
         self.cmb_mode = QComboBox()
         self.cmb_mode.addItems(["Obsidian MD", "Raw MD"])
-        self.cmb_mode.currentIndexChanged.connect(self._on_option_changed)
+        default_mode = self.settings.value("default_mode", "Obsidian MD")
+        self.cmb_mode.setCurrentText(default_mode)
         
         row_settings.addWidget(self.chk_toc)
         row_settings.addWidget(self.cmb_mode)
         opt_layout.addLayout(row_settings)
         
+        row_buttons = QHBoxLayout()
         self.btn_customize = QPushButton("Customize...")
         self.btn_customize.clicked.connect(self._open_customize_dialog)
-        opt_layout.addWidget(self.btn_customize)
+        
+        self.btn_default_settings = QPushButton("Default Settings...")
+        self.btn_default_settings.clicked.connect(self._open_default_settings_dialog)
+        
+        row_buttons.addWidget(self.btn_customize)
+        row_buttons.addWidget(self.btn_default_settings)
+        opt_layout.addLayout(row_buttons)
         
         opt_group.setLayout(opt_layout)
         left_layout.addWidget(opt_group)
@@ -165,7 +108,6 @@ class MainWindow(QMainWindow):
         
         self.btn_preview = QPushButton("PREVIEW")
         self.btn_preview.setMinimumHeight(45)
-        self.btn_preview.setStyleSheet("font-weight: bold;")
         self.btn_preview.clicked.connect(self._start_preview_compilation)
         
         self.btn_convert = QPushButton("COMPILE TO PDF")
@@ -183,6 +125,7 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.console)
 
         right_widget = QWidget()
+        right_widget.setMinimumWidth(300)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(5, 5, 5, 5)
 
@@ -200,11 +143,22 @@ class MainWindow(QMainWindow):
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
         
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+        
         splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 6)
 
         main_layout.addWidget(splitter)
         self.setCentralWidget(central_widget)
+        
+        self._update_preview_button_state()
+
+    def _update_preview_button_state(self):
+        if self.input_file:
+            self.btn_preview.setStyleSheet("font-weight: bold; background-color: #198754; color: white;")
+        else:
+            self.btn_preview.setStyleSheet("font-weight: bold; background-color: #333333; color: #888888; border: 1px solid #555555;")
 
     def _set_elided_path(self, label: QLabel, prefix: str, full_path: str):
         path_obj = Path(full_path)
@@ -226,6 +180,7 @@ class MainWindow(QMainWindow):
             auto_out = in_p.with_suffix('.pdf')
             self.output_file = str(auto_out)
             self._set_elided_path(self.lbl_output, "Output", self.output_file)
+            self._update_preview_button_state()
 
     def _select_output(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save PDF As", self.output_file, "PDF Files (*.pdf)")
@@ -233,15 +188,29 @@ class MainWindow(QMainWindow):
             self.output_file = path
             self._set_elided_path(self.lbl_output, "Output", path)
 
-    def _on_option_changed(self):
-        if self.input_file:
-            self._start_preview_compilation()
-
     def _open_customize_dialog(self):
         dialog = CustomizeDialog(self.selected_font, self.selected_fontsize, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.selected_font, self.selected_fontsize = dialog.get_values()
-            self._on_option_changed()
+
+    def _open_default_settings_dialog(self):
+        current_font = self.settings.value("default_font", "Times New Roman")
+        current_size = int(self.settings.value("default_fontsize", 11))
+        current_mode = self.settings.value("default_mode", "Obsidian MD")
+        current_toc = self.settings.value("default_toc", "false") == "true"
+        
+        dialog = DefaultSettingsDialog(current_font, current_size, current_mode, current_toc, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            font, size, mode, toc = dialog.get_values()
+            self.settings.setValue("default_font", font)
+            self.settings.setValue("default_fontsize", size)
+            self.settings.setValue("default_mode", mode)
+            self.settings.setValue("default_toc", "true" if toc else "false")
+            
+            self.selected_font = font
+            self.selected_fontsize = size
+            self.cmb_mode.setCurrentText(mode)
+            self.chk_toc.setChecked(toc)
 
     def _start_preview_compilation(self):
         self._start_compilation(is_preview=True)
@@ -318,6 +287,29 @@ class MainWindow(QMainWindow):
         else:
             self._append_log("\n>>> COMPILATION FAILED <<<")
             QMessageBox.critical(self, "Error", "Compilation failed. Check the logs for details.")
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and url.toLocalFile().endswith(".md"):
+                    event.acceptProposedAction()
+                    return
+
+    def dropEvent(self, event: QDropEvent):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile() and url.toLocalFile().endswith(".md"):
+                    path = url.toLocalFile()
+                    self.input_file = path
+                    self._set_elided_path(self.lbl_input, "Input", path)
+                    
+                    in_p = Path(path)
+                    auto_out = in_p.with_suffix('.pdf')
+                    self.output_file = str(auto_out)
+                    self._set_elided_path(self.lbl_output, "Output", self.output_file)
+                    self._update_preview_button_state()
+                    event.acceptProposedAction()
+                    return
 
     def closeEvent(self, event):
         if hasattr(self, 'worker') and self.worker.isRunning():
