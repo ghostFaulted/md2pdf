@@ -1,10 +1,8 @@
 import os
 import sys
 import tempfile
-import subprocess
-import traceback
 from pathlib import Path
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List, Optional
 
 from .preprocessor import ObsidianPreprocessor
 
@@ -20,13 +18,13 @@ class MarkdownCompiler:
             
         self.template_path = self.base_dir / "templates" / "academic.tex"
 
-    def compile(self, input_path: str, output_path: str, options: Dict[str, bool]) -> Tuple[bool, str]:
+    def prepare(self, input_path: str, output_path: str, options: Dict[str, bool]) -> Tuple[bool, List[str] | str, Optional[str]]:
         input_file = Path(input_path)
         if not input_file.exists():
-            return False, f"Error: Input file not found at {input_path}"
+            return False, f"Error: Input file not found at {input_path}", None
 
         if not self.template_path.exists():
-            return False, f"Error: Template not found at {self.template_path}"
+            return False, f"Error: Template not found at {self.template_path}", None
 
         work_dir = input_file.parent
         obsidian_mode = options.get("obsidian_mode", True)
@@ -44,7 +42,7 @@ class MarkdownCompiler:
                 input_format = "markdown"
                 
         except Exception as e:
-            return False, f"Preprocessing failed: {str(e)}"
+            return False, f"Preprocessing failed: {str(e)}", None
 
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".md", text=True)
         try:
@@ -59,7 +57,7 @@ class MarkdownCompiler:
                 "--pdf-engine=xelatex",
                 f"--template={str(self.template_path)}",
                 f"--resource-path={str(work_dir)}",
-                "--highlight-style=tango"
+                "--syntax-highlighting=tango"
             ]
             if options.get("toc", False):
                 cmd.append("--toc")
@@ -68,30 +66,9 @@ class MarkdownCompiler:
             if options.get("fontsize"):
                 cmd.extend(["-V", f"fontsize={options['fontsize']}"])
 
-            creationflags = 0
-            if os.name == 'nt':
-                creationflags = subprocess.CREATE_NO_WINDOW
+            return True, cmd, tmp_path
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                check=True,
-                creationflags=creationflags
-            )
-            
-            out = result.stdout.decode('utf-8', errors='replace')
-            err = result.stderr.decode('utf-8', errors='replace')
-            return True, f"{out}\n{err}".strip()
-
-        except subprocess.CalledProcessError as e:
-            err = e.stderr.decode('utf-8', errors='replace') if e.stderr else "No stderr output"
-            error_msg = f"Pandoc/XeLaTeX Compilation Failed (Exit code {e.returncode}):\n{err}"
-            return False, error_msg
         except Exception as e:
-            return False, f"Unexpected compilation error:\n{traceback.format_exc()}"
-        finally:
             if os.path.exists(tmp_path):
-                try:
-                    os.remove(tmp_path)
-                except Exception:
-                    pass
+                os.remove(tmp_path)
+            return False, f"Unexpected preparation error: {str(e)}", None

@@ -9,13 +9,13 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QComboBox, QDialog
 )
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
-from PyQt6.QtCore import Qt, QByteArray, QBuffer, QIODevice, QSettings
+from PyQt6.QtCore import Qt, QByteArray, QBuffer, QIODevice, QSettings, QProcess
 from PyQt6.QtPdf import QPdfDocument
 from PyQt6.QtPdfWidgets import QPdfView
 
+from core.compiler import MarkdownCompiler
 from .safe_pdf_view import SafePdfView
 from .dialogs import CustomizeDialog, DefaultSettingsDialog
-from .worker import CompilerWorker
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -32,6 +32,15 @@ class MainWindow(QMainWindow):
         
         self.selected_font = self.settings.value("default_font", "Times New Roman")
         self.selected_fontsize = int(self.settings.value("default_fontsize", 11))
+        
+        self.compiler = MarkdownCompiler()
+        self.current_tmp_path = None
+        self.is_preview_active = False
+        
+        self.process = QProcess(self)
+        self.process.readyReadStandardOutput.connect(self._read_stdout)
+        self.process.readyReadStandardError.connect(self._read_stderr)
+        self.process.finished.connect(self._on_process_finished)
         
         self._build_ui()
 
@@ -63,10 +72,10 @@ class MainWindow(QMainWindow):
         self.lbl_output = QLabel("Output: Not selected")
         self.lbl_output.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         
-        btn_out = QPushButton("Save As .pdf")
-        btn_out.clicked.connect(self._select_output)
+        self.btn_out = QPushButton("Save As .pdf")
+        self.btn_out.clicked.connect(self._select_output)
         row_out.addWidget(self.lbl_output)
-        row_out.addWidget(btn_out)
+        row_out.addWidget(self.btn_out)
 
         file_layout.addLayout(row_in)
         file_layout.addLayout(row_out)
@@ -113,7 +122,7 @@ class MainWindow(QMainWindow):
         self.btn_convert = QPushButton("COMPILE TO PDF")
         self.btn_convert.setMinimumHeight(45)
         self.btn_convert.setStyleSheet("font-weight: bold; background-color: #0d6efd; color: white;")
-        self.btn_convert.clicked.connect(self._start_final_compilation)
+        self.btn_convert.clicked.connect(self._on_convert_clicked)
         
         btn_layout.addWidget(self.btn_preview)
         btn_layout.addWidget(self.btn_convert)
@@ -215,6 +224,12 @@ class MainWindow(QMainWindow):
     def _start_preview_compilation(self):
         self._start_compilation(is_preview=True)
 
+    def _on_convert_clicked(self):
+        if self.process.state() == QProcess.ProcessState.Running:
+            self.process.kill()
+        else:
+            self._start_compilation(is_preview=False)
+
     def _start_final_compilation(self):
         self._start_compilation(is_preview=False)
 
@@ -248,25 +263,62 @@ class MainWindow(QMainWindow):
 
             target_output = self.preview_temp_pdf_path if is_preview else self.output_file
 
-            self.worker = CompilerWorker(self.input_file, target_output, options, is_preview, parent=self)
-            self.worker.log_signal.connect(self._append_log)
-            self.worker.finished_signal.connect(self._on_compilation_finished)
-            self.worker.start()
+            success, res, tmp_path = self.compiler.prepare(self.input_file, target_output, options)
+            if not success:
+                self.console.append(res)
+                return
+
+            self.current_tmp_path = tmp_path
+            self.is_preview_active = is_preview
+
+            self.btn_in.setEnabled(False)
+            self.btn_out.setEnabled(False)
+            self.chk_toc.setEnabled(False)
+            self.cmb_mode.setEnabled(False)
+            self.btn_customize.setEnabled(False)
+            self.btn_default_settings.setEnabled(False)
+            self.btn_preview.setEnabled(False)
+            
+            self.btn_convert.setText("CANCEL")
+            self.btn_convert.setStyleSheet("font-weight: bold; background-color: #dc3545; color: white;")
+
+            self.process.start(res[0], res[1:])
 
         except Exception as e:
             error_details = traceback.format_exc()
             QMessageBox.critical(self, "Critical Error", f"Failed to start compilation:\n{error_details}")
 
-    def _append_log(self, text: str):
-        self.console.append(text)
+    def _read_stdout(self):
+        data = self.process.readAllStandardOutput().data()
+        self.console.append(data.decode('utf-8', errors='replace'))
 
-    def _on_compilation_finished(self, success: bool, log: str, is_preview: bool):
-        self._append_log(log)
-        
-        if success:
-            self._append_log("\n>>> COMPILATION SUCCESSFUL <<<")
+    def _read_stderr(self):
+        data = self.process.readAllStandardError().data()
+        self.console.append(data.decode('utf-8', errors='replace'))
+
+    def _restore_ui(self):
+        self.btn_in.setEnabled(True)
+        self.btn_out.setEnabled(True)
+        self.chk_toc.setEnabled(True)
+        self.cmb_mode.setEnabled(True)
+        self.btn_customize.setEnabled(True)
+        self.btn_default_settings.setEnabled(True)
+        self.btn_preview.setEnabled(True)
+        self.btn_convert.setText("COMPILE TO PDF")
+        self.btn_convert.setStyleSheet("font-weight: bold; background-color: #0d6efd; color: white;")
+
+    def _on_process_finished(self, exit_code: int, exit_status: QProcess.ExitStatus):
+        if self.current_tmp_path and os.path.exists(self.current_tmp_path):
             try:
-                active_pdf = self.preview_temp_pdf_path if is_preview else self.output_file
+                os.remove(self.current_tmp_path)
+            except Exception:
+                pass
+            self.current_tmp_path = None
+
+        if exit_status == QProcess.ExitStatus.NormalExit and exit_code == 0:
+            self.console.append("\n>>> COMPILATION SUCCESSFUL <<<")
+            try:
+                active_pdf = self.preview_temp_pdf_path if self.is_preview_active else self.output_file
                 self._clear_pdf_buffers()
                 
                 with open(active_pdf, 'rb') as f:
@@ -280,13 +332,19 @@ class MainWindow(QMainWindow):
                 self.pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
                 self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
             except Exception as e:
-                self._append_log(f"\nFailed to load preview: {str(e)}")
+                self.console.append(f"\nFailed to load preview: {str(e)}")
                 
-            if not is_preview:
+            if not self.is_preview_active:
                 QMessageBox.information(self, "Success", "PDF exported and saved successfully.")
         else:
-            self._append_log("\n>>> COMPILATION FAILED <<<")
-            QMessageBox.critical(self, "Error", "Compilation failed. Check the logs for details.")
+            self.console.append("\n>>> COMPILATION FAILED OR CANCELED <<<")
+            if not self.is_preview_active:
+                if exit_status == QProcess.ExitStatus.CrashExit:
+                    QMessageBox.warning(self, "Canceled", "Compilation was canceled by user.")
+                else:
+                    QMessageBox.critical(self, "Error", "Compilation failed. Check the logs for details.")
+
+        self._restore_ui()
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
@@ -312,9 +370,9 @@ class MainWindow(QMainWindow):
                     return
 
     def closeEvent(self, event):
-        if hasattr(self, 'worker') and self.worker.isRunning():
-            self.worker.terminate()
-            self.worker.wait()
+        if hasattr(self, 'process') and self.process.state() == QProcess.ProcessState.Running:
+            self.process.kill()
+            self.process.waitForFinished()
             
         self._clear_pdf_buffers()
             
