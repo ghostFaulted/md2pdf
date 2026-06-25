@@ -1,6 +1,8 @@
 import os
 import sys
 import tempfile
+import subprocess
+import traceback
 from pathlib import Path
 from typing import Tuple, Dict, List, Optional
 
@@ -48,7 +50,14 @@ class MarkdownCompiler:
         try:
             with os.fdopen(tmp_fd, 'w', encoding='utf-8') as tmp_file:
                 tmp_file.write(processed_text)
-                
+            
+            lang = "english"
+            text_lower = raw_text.lower()
+            if any(c in text_lower for c in "іїєґ"):
+                lang = "ukrainian"
+            elif any(c in text_lower for c in "ыэъё") or any(1024 <= ord(c) <= 1279 for c in raw_text):
+                lang = "russian"
+
             cmd = [
                 "pandoc",
                 "-f", input_format,
@@ -57,7 +66,8 @@ class MarkdownCompiler:
                 "--pdf-engine=xelatex",
                 f"--template={str(self.template_path)}",
                 f"--resource-path={str(work_dir)}",
-                "--syntax-highlighting=tango"
+                "--syntax-highlighting=tango",
+                "-V", f"lang={lang}"
             ]
             if options.get("toc", False):
                 cmd.append("--toc")

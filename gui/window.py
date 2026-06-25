@@ -6,16 +6,16 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QFileDialog, QLabel, QCheckBox, 
     QTextEdit, QMessageBox, QGroupBox, QSplitter,
-    QSizePolicy, QComboBox, QDialog
+    QSizePolicy, QComboBox, QDialog, QSlider
 )
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtCore import Qt, QByteArray, QBuffer, QIODevice, QSettings, QProcess
 from PyQt6.QtPdf import QPdfDocument
 from PyQt6.QtPdfWidgets import QPdfView
 
-from core.compiler import MarkdownCompiler
 from .safe_pdf_view import SafePdfView
 from .dialogs import CustomizeDialog, DefaultSettingsDialog
+from core.compiler import MarkdownCompiler
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         left_widget = QWidget()
-        left_widget.setMinimumWidth(350)
+        left_widget.setMinimumWidth(380)
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(5, 5, 5, 5)
 
@@ -134,13 +134,36 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.console)
 
         right_widget = QWidget()
-        right_widget.setMinimumWidth(300)
+        right_widget.setMinimumWidth(350)
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(5, 5, 5, 5)
 
         preview_group = QGroupBox("PDF Live Preview")
         preview_layout = QVBoxLayout(preview_group)
         preview_layout.setContentsMargins(2, 2, 2, 2)
+
+        zoom_layout = QHBoxLayout()
+        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.zoom_slider.setRange(50, 300)
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.setMinimumWidth(80)
+        self.zoom_slider.setMaximumWidth(200)
+        self.zoom_slider.valueChanged.connect(self._on_zoom_changed)
+        
+        self.lbl_zoom = QLabel("100%")
+        self.lbl_zoom.setFixedWidth(40)
+        
+        self.btn_fit = QPushButton("Fit Width")
+        self.btn_fit.setFixedWidth(80)
+        self.btn_fit.clicked.connect(self._fit_to_width)
+        
+        zoom_layout.addWidget(QLabel("Zoom:"))
+        zoom_layout.addWidget(self.zoom_slider)
+        zoom_layout.addWidget(self.lbl_zoom)
+        zoom_layout.addStretch()
+        zoom_layout.addWidget(self.btn_fit)
+        
+        preview_layout.addLayout(zoom_layout)
 
         self.pdf_view = SafePdfView(self)
         self.pdf_document = QPdfDocument(self)
@@ -196,6 +219,10 @@ class MainWindow(QMainWindow):
         if path:
             self.output_file = path
             self._set_elided_path(self.lbl_output, "Output", path)
+
+    def _on_option_changed(self):
+        if self.input_file:
+            self._start_preview_compilation()
 
     def _open_customize_dialog(self):
         dialog = CustomizeDialog(self.selected_font, self.selected_fontsize, self)
@@ -287,6 +314,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             error_details = traceback.format_exc()
             QMessageBox.critical(self, "Critical Error", f"Failed to start compilation:\n{error_details}")
+            self._restore_ui()
 
     def _read_stdout(self):
         data = self.process.readAllStandardOutput().data()
@@ -331,6 +359,12 @@ class MainWindow(QMainWindow):
                 self.pdf_document.load(self.active_pdf_buffer)
                 self.pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
                 self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+                
+                current_zoom = int(self.pdf_view.zoomFactor() * 100)
+                self.zoom_slider.blockSignals(True)
+                self.zoom_slider.setValue(current_zoom)
+                self.zoom_slider.blockSignals(False)
+                self.lbl_zoom.setText(f"{current_zoom}%")
             except Exception as e:
                 self.console.append(f"\nFailed to load preview: {str(e)}")
                 
@@ -345,6 +379,19 @@ class MainWindow(QMainWindow):
                     QMessageBox.critical(self, "Error", "Compilation failed. Check the logs for details.")
 
         self._restore_ui()
+
+    def _on_zoom_changed(self, value: int):
+        self.lbl_zoom.setText(f"{value}%")
+        self.pdf_view.setZoomMode(QPdfView.ZoomMode.Custom)
+        self.pdf_view.setZoomFactor(value / 100.0)
+
+    def _fit_to_width(self):
+        self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+        current_zoom = int(self.pdf_view.zoomFactor() * 100)
+        self.zoom_slider.blockSignals(True)
+        self.zoom_slider.setValue(current_zoom)
+        self.zoom_slider.blockSignals(False)
+        self.lbl_zoom.setText(f"{current_zoom}%")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
