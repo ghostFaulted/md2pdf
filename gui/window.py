@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QPushButton, QFileDialog, QLabel, QCheckBox, 
     QTextEdit, QMessageBox, QGroupBox, QSplitter,
-    QSizePolicy, QComboBox, QDialog, QSlider
+    QSizePolicy, QComboBox, QDialog
 )
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 from PyQt6.QtCore import Qt, QByteArray, QBuffer, QIODevice, QSettings, QProcess
@@ -145,22 +145,13 @@ class MainWindow(QMainWindow):
         preview_layout.setContentsMargins(2, 2, 2, 2)
 
         zoom_layout = QHBoxLayout()
-        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
-        self.zoom_slider.setRange(50, 300)
-        self.zoom_slider.setValue(100)
-        self.zoom_slider.setMinimumWidth(80)
-        self.zoom_slider.setMaximumWidth(200)
-        self.zoom_slider.valueChanged.connect(self._on_zoom_changed)
-        
-        self.lbl_zoom = QLabel("100%")
-        self.lbl_zoom.setFixedWidth(40)
+        self.lbl_zoom = QLabel("Ctrl + Mouse Wheel to Zoom")
+        self.lbl_zoom.setStyleSheet("color: #aaaaaa; font-style: italic; font-weight: bold;")
         
         self.btn_fit = QPushButton("Fit Width")
         self.btn_fit.setFixedWidth(80)
         self.btn_fit.clicked.connect(self._fit_to_width)
         
-        zoom_layout.addWidget(QLabel("Zoom:"))
-        zoom_layout.addWidget(self.zoom_slider)
         zoom_layout.addWidget(self.lbl_zoom)
         zoom_layout.addStretch()
         zoom_layout.addWidget(self.btn_fit)
@@ -185,6 +176,9 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(splitter)
         self.setCentralWidget(central_widget)
+        
+        self.pdf_view.zoomFactorChanged.connect(self._on_zoom_state_changed)
+        self.pdf_view.zoomModeChanged.connect(self._on_zoom_state_changed)
         
         self._update_preview_button_state()
 
@@ -393,13 +387,9 @@ class MainWindow(QMainWindow):
                 
                 self.pdf_document.load(self.active_pdf_buffer)
                 self.pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
-                self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
                 
-                current_zoom = int(self.pdf_view.zoomFactor() * 100)
-                self.zoom_slider.blockSignals(True)
-                self.zoom_slider.setValue(current_zoom)
-                self.zoom_slider.blockSignals(False)
-                self.lbl_zoom.setText(f"{current_zoom}%")
+                self._fit_to_width()
+                
             except Exception as e:
                 self.console.append(f"\nFailed to load preview: {str(e)}")
                 
@@ -420,18 +410,18 @@ class MainWindow(QMainWindow):
 
         self._restore_ui()
 
-    def _on_zoom_changed(self, value: int):
-        self.lbl_zoom.setText(f"{value}%")
-        self.pdf_view.setZoomMode(QPdfView.ZoomMode.Custom)
-        self.pdf_view.setZoomFactor(value / 100.0)
+    def _on_zoom_state_changed(self, *args):
+        mode = self.pdf_view.zoomMode()
+        if mode == QPdfView.ZoomMode.FitToWidth:
+            self.lbl_zoom.setText("Zoom: Fit to Width (Ctrl + Mouse Wheel to Zoom)")
+        elif mode == QPdfView.ZoomMode.FitInView:
+            self.lbl_zoom.setText("Zoom: Fit in View (Ctrl + Mouse Wheel to Zoom)")
+        else:
+            factor = self.pdf_view.zoomFactor()
+            self.lbl_zoom.setText(f"Zoom: {int(factor * 100)}% (Ctrl + Mouse Wheel to Zoom)")
 
     def _fit_to_width(self):
         self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
-        current_zoom = int(self.pdf_view.zoomFactor() * 100)
-        self.zoom_slider.blockSignals(True)
-        self.zoom_slider.setValue(current_zoom)
-        self.zoom_slider.blockSignals(False)
-        self.lbl_zoom.setText(f"{current_zoom}%")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
