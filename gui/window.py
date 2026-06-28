@@ -36,11 +36,13 @@ class MainWindow(QMainWindow):
         self.compiler = MarkdownCompiler()
         self.current_tmp_path = None
         self.is_preview_active = False
+        self.user_canceled = False
         
         self.process = QProcess(self)
         self.process.readyReadStandardOutput.connect(self._read_stdout)
         self.process.readyReadStandardError.connect(self._read_stderr)
         self.process.finished.connect(self._on_process_finished)
+        self.process.errorOccurred.connect(self._on_process_error)
         
         self._build_ui()
 
@@ -253,6 +255,7 @@ class MainWindow(QMainWindow):
 
     def _on_convert_clicked(self):
         if self.process.state() == QProcess.ProcessState.Running:
+            self.user_canceled = True 
             self.process.kill()
         else:
             self._start_compilation(is_preview=False)
@@ -267,6 +270,14 @@ class MainWindow(QMainWindow):
             del self.active_pdf_buffer
         if hasattr(self, 'active_pdf_data'):
             del self.active_pdf_data
+
+    def _cleanup_temp_files(self):
+        if self.current_tmp_path and os.path.exists(self.current_tmp_path):
+            try:
+                os.remove(self.current_tmp_path)
+            except Exception:
+                pass
+            self.current_tmp_path = None
 
     def _start_compilation(self, is_preview: bool):
         try:
@@ -297,6 +308,7 @@ class MainWindow(QMainWindow):
 
             self.current_tmp_path = tmp_path
             self.is_preview_active = is_preview
+            self.user_canceled = False  
 
             self.btn_in.setEnabled(False)
             self.btn_out.setEnabled(False)
@@ -335,13 +347,36 @@ class MainWindow(QMainWindow):
         self.btn_convert.setText("COMPILE TO PDF")
         self.btn_convert.setStyleSheet("font-weight: bold; background-color: #0d6efd; color: white;")
 
+    def _on_process_error(self, error: QProcess.ProcessError):
+        if error == QProcess.ProcessError.FailedToStart:
+            err_msg = (
+                "Failed to execute compilation tools.\n\n"
+                "Possible reasons:\n"
+                "1. Pandoc or XeLaTeX are not added to your Windows system PATH.\n"
+                "2. Your antivirus software blocked execution.\n"
+                "3. Insufficient system permissions."
+            )
+            self.console.append(f"\n[CRITICAL ERROR]: {err_msg.replace(chr(10), ' ')}")
+            
+            if not self.is_preview_active:
+                QMessageBox.critical(self, "Dependency Error", err_msg)
+                
+            self._cleanup_temp_files()
+            self._restore_ui()
+            
+        elif error == QProcess.ProcessError.Crashed:
+            if not self.user_canceled:
+                self.console.append("\n[CRITICAL ERROR]: Pandoc/XeLaTeX engine crashed during compilation.")
+                
+        elif error == QProcess.ProcessError.WriteError:
+            self.console.append("\n[SYSTEM ERROR]: Cannot write data to the compilation process pipes.")
+        elif error == QProcess.ProcessError.ReadError:
+            self.console.append("\n[SYSTEM ERROR]: Cannot read compilation output streams.")
+        else:
+            self.console.append(f"\n[SYSTEM ERROR]: Unknown process error occurred. Code: {error}")
+
     def _on_process_finished(self, exit_code: int, exit_status: QProcess.ExitStatus):
-        if self.current_tmp_path and os.path.exists(self.current_tmp_path):
-            try:
-                os.remove(self.current_tmp_path)
-            except Exception:
-                pass
-            self.current_tmp_path = None
+        self._cleanup_temp_files()
 
         if exit_status == QProcess.ExitStatus.NormalExit and exit_code == 0:
             self.console.append("\n>>> COMPILATION SUCCESSFUL <<<")
@@ -373,10 +408,15 @@ class MainWindow(QMainWindow):
         else:
             self.console.append("\n>>> COMPILATION FAILED OR CANCELED <<<")
             if not self.is_preview_active:
-                if exit_status == QProcess.ExitStatus.CrashExit:
+                if self.user_canceled:
                     QMessageBox.warning(self, "Canceled", "Compilation was canceled by user.")
                 else:
-                    QMessageBox.critical(self, "Error", "Compilation failed. Check the logs for details.")
+                    QMessageBox.critical(
+                        self, 
+                        "Error", 
+                        "Compilation failed. Standard compilation engines aborted.\n"
+                        "Check the console logs for detailed diagnostic error output."
+                    )
 
         self._restore_ui()
 
@@ -418,6 +458,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if hasattr(self, 'process') and self.process.state() == QProcess.ProcessState.Running:
+            self.user_canceled = True
             self.process.kill()
             self.process.waitForFinished()
             

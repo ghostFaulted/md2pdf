@@ -1,34 +1,36 @@
 \documentclass[$if(fontsize)$$fontsize$,$else$11pt,$endif$]{extarticle}
 
-\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+
+\newcommand{\passthrough}[1]{#1}
 
 $if(highlighting-macros)$
 $highlighting-macros$
 $endif$
 
-\usepackage{graphicx}
-\makeatletter
-\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
-\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
-\makeatother
-\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+$if(listings)$
+\usepackage{listings}
+$endif$
 
-\usepackage[margin=2.5cm]{geometry}
-\usepackage{parskip}
-\usepackage{hyperref}
-\hypersetup{
-    colorlinks=true,
-    linkcolor=blue,
-    filecolor=magenta,      
-    urlcolor=blue,
-    pdftitle={$title$},
-}
+$if(lhs)$
+\lstnewenvironment{code}{\lstset{language=Haskell,basicstyle=\small\ttfamily}}{}
+$endif$
 
-\usepackage{fontspec}
+\usepackage{amsmath}
+\usepackage{amssymb}
 \usepackage{unicode-math}
 
+\usepackage{fontspec}
+\defaultfontfeatures{Scale=MatchLowercase}
+\defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+
 $if(mainfont)$
-\setmainfont{$mainfont$}
+\setmainfont{$mainfont$}[
+    BoldFont=* Bold,
+    ItalicFont=* Italic,
+    BoldItalicFont=* Bold Italic
+]
 $else$
 \setmainfont{Times New Roman}
 $endif$
@@ -51,8 +53,62 @@ $else$
 \usepackage[english]{babel}
 $endif$
 
+\usepackage{csquotes} 
 \usepackage{microtype}
 \emergencystretch=3em
+
+$if(geometry)$
+\usepackage[$for(geometry)$$geometry$$sep$,$endfor$]{geometry}
+$else$
+\usepackage[margin=2.5cm]{geometry}
+$endif$
+
+\usepackage{parskip}
+
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{calc}      
+\usepackage{multirow}  
+
+\usepackage{footnotehyper}
+\makesavenoteenv{longtable}
+
+\usepackage{graphicx}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+
+\usepackage[normalem]{ulem}
+
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=blue,
+    pdftitle={$title$},
+}
+
+\pdfstringdefDisableCommands{\renewcommand{\sout}{}}
+
+$if(csl-refs)$
+\newlength{\cslhangindent}
+\setlength{\cslhangindent}{1.5em}
+\newlength{\csllabelwidth}
+\setlength{\csllabelwidth}{3em}
+\newenvironment{CSLReferences}[2] 
+ {
+  \setlength{\parindent}{0pt}
+  \ifodd #1 \everypar{\setlength{\hangindent}{\cslhangindent}}\ignorespaces\fi
+  \ifnum #2 > 0
+  \setlength{\parskip}{#2\baselineskip}
+  \fi
+ }
+ {}
+$endif$
 
 \usepackage{titlesec}
 \titleformat{\paragraph}[hang]{\normalfont\normalsize\bfseries}{\theparagraph}{1em}{}
@@ -70,15 +126,16 @@ $endif$
 \definecolor{tipcolor}{HTML}{00BA88}
 \definecolor{warningcolor}{HTML}{F4B000}
 \definecolor{dangercolor}{HTML}{E53935}
+\definecolor{defaultcolor}{HTML}{7F8C8D} 
 
 \newtcolorbox{obscallout}[2]{
     enhanced,
     breakable,
     frame hidden,
     boxrule=0pt,
-    borderline west={4pt}{0pt}{#1color},
-    colback=#1color!5!white,
-    coltitle=#1color,
+    borderline west={4pt}{0pt}{#1},
+    colback=#1!5!white,
+    coltitle=#1,
     fonttitle=\bfseries,
     title={#2},
     attach title to upper=\par\vspace{0.3em},
